@@ -18,9 +18,59 @@ require() {
     command -v "$1" >/dev/null 2>&1 || { echo "missing required tool: $1" >&2; exit 1; }
 }
 require curl
-require sha256sum
 require npm
 require tar
+# sha256: prefer GNU sha256sum, fall back to BSD/macOS shasum.
+if command -v sha256sum >/dev/null 2>&1; then
+    SHA256_CMD=(sha256sum)
+elif command -v shasum >/dev/null 2>&1; then
+    SHA256_CMD=(shasum -a 256)
+else
+    echo "missing required tool: sha256sum or shasum" >&2; exit 1
+fi
+sha256_of() { "${SHA256_CMD[@]}" "$1" | awk '{print $1}'; }
+
+# Portable file size — works on GNU stat, BSD stat, and anywhere with wc.
+# `wc -c < file` returns just the byte count (with leading whitespace on BSD,
+# so we trim).
+size_of() { wc -c <"$1" | tr -d '[:space:]'; }
+
+# Portable path normalization (handles `./`, `//`, and `..`). Bash 3.2 safe
+# so it runs on the macOS system bash without coreutils. Replaces the
+# GNU-only `realpath -m --relative-to=.` we used previously.
+normalize_path() {
+    local path="$1"
+    local result=""
+    local component
+    local IFS=/
+    set -- $path
+    for component; do
+        case "$component" in
+            ""|.) continue ;;
+            ..)
+                if [[ -n "$result" && "$result" != ".." && "$result" != *"/.." ]]; then
+                    result="${result%/*}"
+                    [[ "$result" == "$component" ]] && result=""
+                else
+                    result="${result:+${result}/}.."
+                fi
+                ;;
+            *)
+                result="${result:+${result}/}$component"
+                ;;
+        esac
+    done
+    echo "$result"
+}
+
+# Portable in-place rewrite: write through a temp file, then mv. Avoids the
+# GNU-vs-BSD `sed -i` arg-shape difference entirely.
+inplace_sed() {
+    local script="$1" file="$2"
+    local tmp
+    tmp="$(mktemp)"
+    sed -E "$script" "$file" >"$tmp" && mv "$tmp" "$file"
+}
 
 echo "vendoring ${NPM_PKG}@${VERSION} -> ${OUT_DIR}" >&2
 
@@ -57,7 +107,7 @@ fetch_one() {
     case "${code}" in
         200)
             mv "${dest}.tmp" "${dest}"
-            echo "  fetched ${rel} ($(stat -c %s "${dest}") bytes)" >&2
+            echo "  fetched ${rel} ($(size_of "${dest}") bytes)" >&2
             ;;
         204)
             rm -f "${dest}.tmp"
@@ -146,7 +196,7 @@ while ((${#queue[@]} > 0)); do
                 resolved="$(resolve_ref "${rel}" "${ref}")"
                 resolved="${resolved#./}"
                 if [[ "${resolved}" == */* ]]; then
-                    resolved="$(realpath -m --relative-to=. "${resolved}")"
+                    resolved="$(normalize_path "${resolved}")"
                 fi
                 enqueue "${resolved}"
             done < <(extract_refs "${OUT_DIR}/${rel}")
@@ -160,7 +210,7 @@ while IFS= read -r f; do
     files_to_rewrite+=("${f}")
 done < <(grep -rlE "https?://cxrtnc\\.leaningtech\\.com" "${OUT_DIR}" 2>/dev/null || true)
 for f in "${files_to_rewrite[@]+"${files_to_rewrite[@]}"}"; do
-    sed -i -E "s#https?://cxrtnc\\.leaningtech\\.com/${VERSION}/##g; s#https?://cxrtnc\\.leaningtech\\.com/##g" "${f}"
+    inplace_sed "s#https?://cxrtnc\\.leaningtech\\.com/${VERSION}/##g; s#https?://cxrtnc\\.leaningtech\\.com/##g" "${f}"
     echo "  rewrote ${f#${OUT_DIR}/}" >&2
 done
 
@@ -183,8 +233,8 @@ manifest="${OUT_DIR}/CHEERPX_VERSION.md"
         cd "${OUT_DIR}"
         find . -type f \( -name '*.js' -o -name '*.wasm' -o -name '*.d.ts' \) | sort | while read -r f; do
             f="${f#./}"
-            size="$(stat -c %s "${f}")"
-            sum="$(sha256sum "${f}" | awk '{print $1}')"
+            size="$(size_of "${f}")"
+            sum="$(sha256_of "${f}")"
             echo "| \`${f}\` | ${size} | \`${sum}\` |"
         done
     )
