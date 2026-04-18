@@ -1,0 +1,34 @@
+# Swift / SwiftPM
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/contents.xcworkspacedata
+DerivedData/
+*.xcuserstate
+
+# JS workspace
+webvm-harness/node_modules/
+webvm-harness/playwright-report/
+webvm-harness/test-results/
+webvm-harness/.vitest-cache/
+
+# Vendored CheerpX runtime — fetched by tools/vendor-cheerpx.sh.
+# Kept out of git per the upstream license (proprietary; free for personal/OSS
+# use but redistribution restricted by §2.1(i) of webvm-harness/vendor/cheerpx/LICENSE.txt).
+# Devs fetch it from Leaning Technologies' CDN themselves at first clone.
+webvm-harness/vendor/cheerpx/
+
+# Disk image build output (large; rebuild via tools/build-disk.sh)
+out/
+
+# Repo-local temp scratch (per user convention; never commit)
+.temp/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/

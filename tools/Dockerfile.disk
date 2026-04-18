@@ -1,0 +1,34 @@
+# Pinning to bookworm-slim tag rather than @sha256:... digest:
+# i386/debian rotates digests frequently and a pinned digest would make
+# rebuilds fail until the manifest is refreshed. Apt package versions
+# inside the layer dominate reproducibility anyway.
+FROM --platform=linux/386 i386/debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        neovim git curl ca-certificates python3 python3-pip python3-venv \
+        build-essential ripgrep fd-find tmux \
+        locales sudo bash-completion less openssh-client \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
+
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
+RUN useradd -m -u 1000 -s /bin/bash -G sudo user \
+ && echo 'user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/user \
+ && chmod 0440 /etc/sudoers.d/user
+
+USER user
+RUN git clone --depth=1 https://github.com/LazyVim/starter /tmp/lazyvim \
+ && rm -rf /tmp/lazyvim/.git \
+ && mkdir -p /home/user/.config \
+ && cp -r /tmp/lazyvim /home/user/.config/nvim \
+ && rm -rf /tmp/lazyvim
+
+USER root
+RUN mkdir -p /etc/skel/.config \
+ && cp -r /home/user/.config/nvim /etc/skel/.config/nvim \
+ && chown -R root:root /etc/skel/.config
+
+WORKDIR /home/user
